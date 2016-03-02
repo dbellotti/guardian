@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/cloudfoundry-incubator/garden/client"
 	"github.com/cloudfoundry-incubator/garden/client/connection"
+	"github.com/eapache/go-resiliency/retrier"
 	"github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -170,6 +172,24 @@ func cmd(tmpdir, depotDir, graphPath, network, addr, bin, initBin, kawasakiBin, 
 }
 
 func (r *RunningGarden) Cleanup() {
+	// unmount aufs since the docker graph driver leaves this around,
+	// otherwise the following commands might fail
+	retry := retrier.New(retrier.ConstantBackoff(200, 500*time.Millisecond), nil)
+
+	err := retry.Run(func() error {
+		if err := os.RemoveAll(path.Join(r.GraphPath, "aufs")); err == nil {
+			return nil // if we can remove it, it's already unmounted
+		}
+
+		err := syscall.Unmount(path.Join(r.GraphPath, "aufs"), 0)
+		r.logger.Error("failed-unmount-attempt", err)
+		return err
+	})
+
+	if err != nil {
+		r.logger.Error("failed-to-unmount", err)
+	}
+
 	MustUnmountTmpfs(r.GraphPath)
 
 	if err := os.RemoveAll(r.GraphPath); err != nil {
