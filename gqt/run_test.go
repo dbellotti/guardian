@@ -4,7 +4,6 @@ import (
 	"io"
 
 	"github.com/cloudfoundry-incubator/garden"
-	"github.com/cloudfoundry-incubator/guardian/gqt/runner"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -14,8 +13,6 @@ import (
 )
 
 var _ = Describe("Run", func() {
-	var client *runner.RunningGarden
-
 	AfterEach(func() {
 		Expect(client.DestroyAndStop()).To(Succeed())
 	})

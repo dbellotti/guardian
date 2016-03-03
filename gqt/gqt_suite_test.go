@@ -25,6 +25,10 @@ var ginkgoIO = garden.ProcessIO{Stdout: GinkgoWriter, Stderr: GinkgoWriter}
 
 var ociRuntimeBin, gardenBin, initBin, kawasakiBin, iodaemonBin, nstarBin string
 
+var client *runner.RunningGarden
+
+var container garden.Container
+
 func TestGqt(t *testing.T) {
 	RegisterFailHandler(Fail)
 
@@ -86,6 +90,11 @@ func TestGqt(t *testing.T) {
 		Expect(os.Chmod(initBin, 0755)).To(Succeed())
 		Expect(os.Chmod(path.Dir(initBin), 0755)).To(Succeed())
 		Expect(os.Chmod(path.Dir(path.Dir(initBin)), 0755)).To(Succeed())
+	})
+
+	AfterEach(func() {
+		Expect(client.DestroyAndStop()).To(Succeed())
+		client.Cleanup()
 	})
 
 	SetDefaultEventuallyTimeout(5 * time.Second)

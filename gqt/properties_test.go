@@ -3,16 +3,13 @@ package gqt_test
 import (
 	"github.com/cloudfoundry-incubator/garden"
 	"github.com/cloudfoundry-incubator/guardian/gardener"
-	"github.com/cloudfoundry-incubator/guardian/gqt/runner"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("Properties", func() {
 	var (
-		client    *runner.RunningGarden
-		container garden.Container
-		props     garden.Properties
+		props garden.Properties
 	)
 
 	BeforeEach(func() {

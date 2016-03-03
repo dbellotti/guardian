@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/cloudfoundry-incubator/garden"
-	"github.com/cloudfoundry-incubator/guardian/gqt/runner"
 
 	. "github.com/cloudfoundry-incubator/guardian/matchers"
 	. "github.com/onsi/ginkgo"
@@ -25,9 +24,6 @@ import (
 
 var _ = Describe("Creating a Container", func() {
 	var (
-		client    *runner.RunningGarden
-		container garden.Container
-
 		initialSockets int
 		initialPipes   int
 	)

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/cloudfoundry-incubator/garden"
-	"github.com/cloudfoundry-incubator/guardian/gqt/runner"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -16,11 +15,6 @@ import (
 )
 
 var _ = Describe("Destroying a Container", func() {
-	var (
-		client    *runner.RunningGarden
-		container garden.Container
-	)
-
 	BeforeEach(func() {
 		client = startGarden()
 	})

@@ -10,11 +10,6 @@ import (
 )
 
 var _ = Describe("Info", func() {
-	var (
-		client    *runner.RunningGarden
-		container garden.Container
-	)
-
 	BeforeEach(func() {
 		var err error
 		client = startGarden()

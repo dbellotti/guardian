@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 
 	"github.com/cloudfoundry-incubator/garden"
-	"github.com/cloudfoundry-incubator/guardian/gqt/runner"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -22,9 +21,7 @@ import (
 var dockerRegistryV2RootFSPath = os.Getenv("GARDEN_DOCKER_REGISTRY_V2_TEST_ROOTFS")
 
 var _ = Describe("Rootfs container create parameter", func() {
-	var container garden.Container
 	var args []string
-	var client *runner.RunningGarden
 
 	BeforeEach(func() {
 		container = nil

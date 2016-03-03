@@ -13,7 +13,6 @@ import (
 
 	"github.com/cloudfoundry-incubator/garden"
 	"github.com/cloudfoundry-incubator/guardian/gardener"
-	"github.com/cloudfoundry-incubator/guardian/gqt/runner"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
@@ -22,9 +21,6 @@ import (
 
 var _ = Describe("Net", func() {
 	var (
-		client    *runner.RunningGarden
-		container garden.Container
-
 		containerNetwork string
 		args             []string
 

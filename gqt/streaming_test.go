@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 
 	"github.com/cloudfoundry-incubator/garden"
-	"github.com/cloudfoundry-incubator/guardian/gqt/runner"
 	. "github.com/cloudfoundry-incubator/guardian/matchers"
 
 	. "github.com/onsi/ginkgo"
@@ -19,11 +18,6 @@ import (
 )
 
 var _ = Describe("Streaming", func() {
-	var (
-		client    *runner.RunningGarden
-		container garden.Container
-	)
-
 	BeforeEach(func() {
 		var err error
 

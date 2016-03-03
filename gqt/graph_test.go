@@ -14,9 +14,7 @@ import (
 	"github.com/onsi/gomega/gbytes"
 )
 
-var _ = FDescribe("graph flags", func() {
-	var client *runner.RunningGarden
-
+var _ = Describe("graph flags", func() {
 	var (
 		layersPath           string
 		diffPath             string
@@ -71,8 +69,6 @@ var _ = FDescribe("graph flags", func() {
 
 	AfterEach(func() {
 		Expect(os.RemoveAll(nonDefaultRootfsPath)).To(Succeed())
-		Expect(client.DestroyAndStop()).To(Succeed())
-		client.Cleanup()
 	})
 
 	Describe("--graphCleanupThresholdMB", func() {

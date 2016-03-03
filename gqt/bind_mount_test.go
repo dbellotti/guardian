@@ -7,16 +7,12 @@ import (
 	"path/filepath"
 
 	"github.com/cloudfoundry-incubator/garden"
-	"github.com/cloudfoundry-incubator/guardian/gqt/runner"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("Bind mount", func() {
 	var (
-		client    *runner.RunningGarden
-		container garden.Container
-
 		// container create parms
 		privilegedContainer bool
 		srcPath             string                 // bm: source
