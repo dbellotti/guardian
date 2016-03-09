@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudfoundry-incubator/garden"
 	"github.com/cloudfoundry-incubator/guardian/gqt/runner"
@@ -110,6 +111,19 @@ var _ = Describe("Creating a Container", func() {
 			container = nil // avoid double-destroying
 
 			Eventually(func() int { return numOpenSockets(client.Pid) }).Should(Equal(initialSockets))
+		})
+
+		FIt("should avoid leaving zombie processes", func() {
+			Expect(client.Destroy(container.Handle())).To(Succeed())
+			container = nil // avoid double-destroying
+
+			sess, err := gexec.Start(exec.Command("ps"), GinkgoWriter, GinkgoWriter)
+			Expect(err).NotTo(HaveOccurred())
+
+			time.Sleep(1 * time.Hour)
+
+			Eventually(sess).Should(gexec.Exit(0))
+			Eventually(sess).ShouldNot(gbytes.Say("defunct"))
 		})
 
 		DescribeTable("placing the container in to all namespaces", func(ns string) {

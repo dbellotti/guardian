@@ -101,6 +101,31 @@ func (r *RunRunc) Start(log lager.Logger, bundlePath, id string, _ garden.Proces
 	cmd := r.runc.StartCommand(bundlePath, id, true)
 	cmd.Stdout = &buff
 
+	// STEP 2: Start -> guardian -> iodaemon -> runch start -d $depot/$handle -> runcc
+	// STEP 2: Start -> guardian -> iodaemon -> reaper -> runch start -d $depot/$handle -> runcc
+	//                                       -> reaper.wait -> runcc
+	// func main() {
+	//    go func() {
+	//           syscall.Wait(-1, )
+	//    }()
+	//    exec.Command(os.Args[1], os.Args[2:]).Run()
+	// }
+	// tracker.Run(exec.Command(runc start -d $depot..))
+	// tracker.Run(exec.Command(reaper runc start -d $depot...))
+
+	//                                       -> listens pid.sock
+	//                                       -> connects to pid.sock, returns output/exit
+	/// runc start
+	//         -> 1. parses config.json, creates libcontainer config
+	//         -> 2. libcontainer.create
+	//         -> 3.  forks with CLONE_NEWNET, CLONE_NEWNS Etc
+	//         -> 3a. runch                   3b. runcc
+	//         -> 3a. [initial setup]         3b. [blocks on pipe]
+	//         -> 3a. [unblock pipe]          3b. container-side setup
+	//         -> [sync]
+	//         -> 3a. wait(..) for exit status, io.Copy(os.Stdout, runcc.Stdout)  3b. exec(config.Args...) <-- non-detach
+	//         -> 3a. saves pid of 3b. -> foo.pid, exit                           3b. exec(config.Args...) <-- detach --pid-file=foo.pid
+	//         -> 3a. exit                                                        3b. exec(config.Args...) <-- detach
 	process, err := r.tracker.Run(r.pidGenerator.Generate(), cmd, garden.ProcessIO{Stdout: &buff}, nil, "")
 	if err != nil {
 		log.Error("run-runc-track-failed", err)
