@@ -120,21 +120,22 @@ var _ = Describe("Gardener", func() {
 				})
 			})
 
-			Context("when a memory limit is provided", func() {
-				It("should pass the memory limit to the containerizer", func() {
-					memLimit := garden.Limits{
+			Context("when limits are provided", func() {
+				It("should pass them to the containerizer", func() {
+					limits := garden.Limits{
 						Memory: garden.MemoryLimits{LimitInBytes: 4096},
+						CPU:    garden.CPULimits{LimitInShares: 122},
 					}
 
 					_, err := gdnr.Create(garden.ContainerSpec{
-						Limits: memLimit,
+						Limits: limits,
 					})
 					Expect(err).NotTo(HaveOccurred())
 
 					Expect(containerizer.CreateCallCount()).To(Equal(1))
 
 					_, spec := containerizer.CreateArgsForCall(0)
-					Expect(spec.Limits).To(Equal(memLimit))
+					Expect(spec.Limits).To(Equal(limits))
 				})
 			})
 
@@ -925,6 +926,33 @@ var _ = Describe("Gardener", func() {
 			Expect(info.Events).To(Equal([]string{
 				"some", "things", "happened",
 			}))
+		})
+
+		Describe("CurrentCPULimits", func() {
+			It("returns the CPU limits", func() {
+				actualCPULimit := garden.CPULimits{
+					LimitInShares: 122,
+				}
+				containerizer.InfoReturns(gardener.ActualContainerSpec{
+					Limits: garden.Limits{
+						CPU: actualCPULimit,
+					},
+				}, nil)
+
+				cpuLimit, err := container.CurrentCPULimits()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cpuLimit).To(Equal(actualCPULimit))
+
+				_, actualHandle := containerizer.InfoArgsForCall(0)
+				Expect(actualHandle).To(Equal("some-handle"))
+			})
+
+			It("returns any errors", func() {
+				containerizer.InfoReturns(gardener.ActualContainerSpec{}, errors.New("error"))
+
+				_, err := container.CurrentCPULimits()
+				Expect(err).To(MatchError("error"))
+			})
 		})
 	})
 })

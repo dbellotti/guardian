@@ -9,6 +9,7 @@ import (
 	"github.com/cloudfoundry-incubator/guardian/gardener"
 	"github.com/cloudfoundry-incubator/guardian/rundmc/depot"
 	"github.com/cloudfoundry-incubator/guardian/rundmc/runrunc"
+	"github.com/opencontainers/specs"
 	"github.com/pivotal-golang/lager"
 )
 
@@ -20,6 +21,7 @@ import (
 //go:generate counterfeiter . ContainerStater
 //go:generate counterfeiter . EventStore
 //go:generate counterfeiter . Retrier
+//go:generate counterfeiter . CgroupReader
 
 type Depot interface {
 	Create(log lager.Logger, handle string, bundle depot.BundleSaver) error
@@ -62,6 +64,10 @@ type Retrier interface {
 	Run(fn func() error) error
 }
 
+type CgroupReader interface {
+	CPUCgroup(log lager.Logger, handle string) (specs.CPU, error)
+}
+
 // Containerizer knows how to manage a depot of container bundles
 type Containerizer struct {
 	depot        Depot
@@ -71,9 +77,10 @@ type Containerizer struct {
 	nstar        NstarRunner
 	events       EventStore
 	retrier      Retrier
+	cgroupReader CgroupReader
 }
 
-func New(depot Depot, bundler BundleGenerator, runner BundleRunner, stateChecker ContainerStater, nstarRunner NstarRunner, events EventStore, retrier Retrier) *Containerizer {
+func New(depot Depot, bundler BundleGenerator, runner BundleRunner, stateChecker ContainerStater, nstarRunner NstarRunner, events EventStore, retrier Retrier, cgroupReader CgroupReader) *Containerizer {
 	return &Containerizer{
 		depot:        depot,
 		bundler:      bundler,
@@ -82,6 +89,7 @@ func New(depot Depot, bundler BundleGenerator, runner BundleRunner, stateChecker
 		nstar:        nstarRunner,
 		events:       events,
 		retrier:      retrier,
+		cgroupReader: cgroupReader,
 	}
 }
 
@@ -213,9 +221,19 @@ func (c *Containerizer) Info(log lager.Logger, handle string) (gardener.ActualCo
 		return gardener.ActualContainerSpec{}, err
 	}
 
+	cgroupCpuLimits, err := c.cgroupReader.CPUCgroup(log, handle)
+	if err != nil {
+		return gardener.ActualContainerSpec{}, err
+	}
+
 	return gardener.ActualContainerSpec{
 		BundlePath: bundlePath,
 		Events:     c.events.Events(handle),
+		Limits: garden.Limits{
+			CPU: garden.CPULimits{
+				LimitInShares: *cgroupCpuLimits.Shares,
+			},
+		},
 	}, nil
 }
 

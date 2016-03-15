@@ -14,6 +14,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
+	"github.com/opencontainers/specs"
 	"github.com/pivotal-golang/lager"
 	"github.com/pivotal-golang/lager/lagertest"
 )
@@ -27,6 +28,7 @@ var _ = Describe("Rundmc", func() {
 		fakeStater          *fakes.FakeContainerStater
 		fakeEventStore      *fakes.FakeEventStore
 		fakeRetrier         *fakes.FakeRetrier
+		fakeCgroupReader    *fakes.FakeCgroupReader
 
 		logger        lager.Logger
 		containerizer *rundmc.Containerizer
@@ -39,6 +41,7 @@ var _ = Describe("Rundmc", func() {
 		fakeNstarRunner = new(fakes.FakeNstarRunner)
 		fakeStater = new(fakes.FakeContainerStater)
 		fakeEventStore = new(fakes.FakeEventStore)
+		fakeCgroupReader = new(fakes.FakeCgroupReader)
 		logger = lagertest.NewTestLogger("test")
 
 		fakeDepot.LookupStub = func(_ lager.Logger, handle string) (string, error) {
@@ -50,7 +53,7 @@ var _ = Describe("Rundmc", func() {
 			return fn()
 		}
 
-		containerizer = rundmc.New(fakeDepot, fakeBundler, fakeContainerRunner, fakeStater, fakeNstarRunner, fakeEventStore, fakeRetrier)
+		containerizer = rundmc.New(fakeDepot, fakeBundler, fakeContainerRunner, fakeStater, fakeNstarRunner, fakeEventStore, fakeRetrier, fakeCgroupReader)
 	})
 
 	Describe("Create", func() {
@@ -347,6 +350,18 @@ var _ = Describe("Rundmc", func() {
 	})
 
 	Describe("Info", func() {
+		var (
+			cpuSharesLimit uint64
+		)
+
+		BeforeEach(func() {
+			cpuSharesLimit = uint64(111)
+
+			fakeCgroupReader.CPUCgroupReturns(specs.CPU{
+				Shares: &cpuSharesLimit,
+			}, nil)
+		})
+
 		It("should return the ActualContainerSpec with the correct bundlePath", func() {
 			actualSpec, err := containerizer.Info(logger, "some-handle")
 			Expect(err).NotTo(HaveOccurred())
@@ -373,6 +388,22 @@ var _ = Describe("Rundmc", func() {
 				"potato",
 				"fire",
 			}))
+		})
+
+		It("should return the ActualContainerSpec with the correct CPU limits", func() {
+			actualSpec, err := containerizer.Info(logger, "some-handle")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(actualSpec.Limits.CPU.LimitInShares).To(Equal(cpuSharesLimit))
+		})
+
+		Context("when looking up Cgroup fails", func() {
+			It("should return the error", func() {
+				fakeCgroupReader.CPUCgroupReturns(specs.CPU{}, errors.New("some error"))
+
+				_, err := containerizer.Info(logger, "some-handle")
+
+				Expect(err).To(MatchError("some error"))
+			})
 		})
 	})
 

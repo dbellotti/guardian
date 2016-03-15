@@ -99,6 +99,7 @@ type DesiredContainerSpec struct {
 	// Container is privileged
 	Privileged bool
 
+	// Desired container limits
 	Limits garden.Limits
 
 	Env []string
@@ -116,6 +117,9 @@ type ActualContainerSpec struct {
 
 	// Events (e.g. OOM) which have occured in the container
 	Events []string
+
+	// Actual container limits
+	Limits garden.Limits
 }
 
 // Gardener orchestrates other components to implement the Garden API
