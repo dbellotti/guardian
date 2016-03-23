@@ -91,14 +91,14 @@ type RunRunc struct {
 	tracker       ProcessTracker
 	commandRunner command_runner.CommandRunner
 	pidGenerator  UidGenerator
-	runc          RuncBinary
+	runc          LoggingRuncBinary
 
 	execPreparer *ExecPreparer
 }
 
 //go:generate counterfeiter . RuncBinary
 type RuncBinary interface {
-	StartCommand(path, id string, detach bool, logFilePath string) *exec.Cmd
+	StartCommand(path, id string, detach bool) *exec.Cmd
 	ExecCommand(id, processJSONPath, pidFilePath string) *exec.Cmd
 	EventsCommand(id string) *exec.Cmd
 	StateCommand(id string) *exec.Cmd
@@ -107,7 +107,12 @@ type RuncBinary interface {
 	DeleteCommand(id string) *exec.Cmd
 }
 
-func New(tracker ProcessTracker, runner command_runner.CommandRunner, pidgen UidGenerator, runc RuncBinary, execPreparer *ExecPreparer) *RunRunc {
+//go:generate counterfeiter . LoggingRuncBinary
+type LoggingRuncBinary interface {
+	WithLogFile(logFile string) RuncBinary
+}
+
+func New(tracker ProcessTracker, runner command_runner.CommandRunner, pidgen UidGenerator, runc LoggingRuncBinary, execPreparer *ExecPreparer) *RunRunc {
 	return &RunRunc{
 		tracker:       tracker,
 		commandRunner: runner,
@@ -115,6 +120,26 @@ func New(tracker ProcessTracker, runner command_runner.CommandRunner, pidgen Uid
 		runc:          runc,
 		execPreparer:  execPreparer,
 	}
+}
+
+func processRuncLogs(log lager.Logger, logFile string, err error) error {
+	logFileR, openErr := os.Open(logFile)
+	if openErr != nil {
+		return fmt.Errorf("start: read log file: %s", openErr)
+	}
+
+	buff, readErr := ioutil.ReadAll(logFileR)
+	if readErr != nil {
+		return fmt.Errorf("start: read log file: %s", readErr)
+	}
+
+	forwardRuncLogsToLager(log, buff)
+
+	if err != nil {
+		return wrapWithErrorFromRuncLog(log, err, buff)
+	}
+
+	return nil
 }
 
 // Starts a bundle by running 'runc' in the bundle directory
@@ -126,7 +151,7 @@ func (r *RunRunc) Start(log lager.Logger, bundlePath, id string, _ garden.Proces
 
 	logFile := filepath.Join(bundlePath, "start.log")
 
-	cmd := r.runc.StartCommand(bundlePath, id, true, logFile)
+	cmd := r.runc.WithLogFile(logFile).StartCommand(bundlePath, id, true)
 	process, err := r.tracker.Run(r.pidGenerator.Generate(), cmd, garden.ProcessIO{Stdout: os.Stdout, Stderr: os.Stderr}, nil, "")
 	if err != nil {
 		log.Error("run-runc-track-failed", err)
@@ -134,23 +159,7 @@ func (r *RunRunc) Start(log lager.Logger, bundlePath, id string, _ garden.Proces
 	}
 
 	defer func() {
-		logFileR, openErr := os.Open(logFile)
-		if openErr != nil {
-			err = fmt.Errorf("start: read log file: %s", openErr)
-			return
-		}
-
-		buff, readErr := ioutil.ReadAll(logFileR)
-		if readErr != nil {
-			err = fmt.Errorf("start: read log file: %s", readErr)
-			return
-		}
-
-		forwardRuncLogsToLager(log, buff)
-
-		if err != nil {
-			err = wrapWithErrorFromRuncLog(log, err, buff)
-		}
+		err = processRuncLogs(log, logFile, err)
 	}()
 
 	status, err := process.Wait()
@@ -176,8 +185,24 @@ func (r *RunRunc) Exec(log lager.Logger, bundlePath, id string, spec garden.Proc
 	log.Info("started", lager.Data{pid: "pid"})
 	defer log.Info("finished")
 
+	logFile := filepath.Join(bundlePath, "exec-"+pid+".log")
+
+	defer func() {
+		logFileR, openErr := os.Open(logFile)
+		if openErr != nil {
+			return
+		}
+
+		buff, readErr := ioutil.ReadAll(logFileR)
+		if readErr != nil {
+			return
+		}
+
+		forwardRuncLogsToLager(log, buff)
+	}()
+
 	pidFilePath := path.Join(bundlePath, "processes", fmt.Sprintf("%s.pid", pid))
-	cmd, err := r.execPreparer.Prepare(log, id, bundlePath, pidFilePath, spec, r.runc)
+	cmd, err := r.execPreparer.Prepare(log, id, bundlePath, pidFilePath, spec, r.runc.WithLogFile(logFile))
 	if err != nil {
 		log.Error("prepare-failed", err)
 		return nil, err
@@ -199,7 +224,7 @@ type runcEvent struct {
 
 func (r *RunRunc) WatchEvents(log lager.Logger, handle string, eventsNotifier EventsNotifier) error {
 	stdoutR, w := io.Pipe()
-	cmd := r.runc.EventsCommand(handle)
+	cmd := r.runc.WithLogFile("").EventsCommand(handle)
 	cmd.Stdout = w
 
 	log = log.Session("watch", lager.Data{
@@ -237,7 +262,7 @@ func (r *RunRunc) WatchEvents(log lager.Logger, handle string, eventsNotifier Ev
 }
 
 func (r *RunRunc) Stats(log lager.Logger, id string) (gardener.ActualContainerMetrics, error) {
-	buf, err := r.run(log, r.runc.StatsCommand(id))
+	buf, err := r.run(log, r.runc.WithLogFile("").StatsCommand(id))
 	if err != nil {
 		return gardener.ActualContainerMetrics{}, fmt.Errorf("runC stats: %s", err)
 	}
@@ -268,7 +293,7 @@ func (r *RunRunc) State(log lager.Logger, handle string) (state State, err error
 	log.Info("started")
 	defer log.Info("finished")
 
-	buff, err := r.run(log, r.runc.StateCommand(handle))
+	buff, err := r.run(log, r.runc.WithLogFile("").StateCommand(handle))
 	if err != nil {
 		log.Error("state-cmd-failed", err)
 		return State{}, fmt.Errorf("runc state: %s", err)
@@ -289,7 +314,7 @@ func (r *RunRunc) Kill(log lager.Logger, handle string) error {
 	log.Info("started")
 	defer log.Info("finished")
 
-	buf, err := r.run(log, r.runc.KillCommand(handle, "KILL"))
+	buf, err := r.run(log, r.runc.WithLogFile("").KillCommand(handle, "KILL"))
 	if err != nil {
 		log.Error("run-failed", err, lager.Data{"stderr": buf.String()})
 		return fmt.Errorf("runc kill: %s: %s", err, string(buf.String()))
@@ -300,7 +325,7 @@ func (r *RunRunc) Kill(log lager.Logger, handle string) error {
 
 // Delete a bundle which was detached (requires the bundle was already killed)
 func (r *RunRunc) Delete(log lager.Logger, handle string) error {
-	cmd := r.runc.DeleteCommand(handle)
+	cmd := r.runc.WithLogFile("").DeleteCommand(handle)
 	return r.commandRunner.Run(cmd)
 }
 

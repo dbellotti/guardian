@@ -26,15 +26,16 @@ import (
 
 var _ = Describe("RuncRunner", func() {
 	var (
-		tracker       *fakes.FakeProcessTracker
-		commandRunner *fake_command_runner.FakeCommandRunner
-		pidGenerator  *fakes.FakeUidGenerator
-		runcBinary    *fakes.FakeRuncBinary
-		bundleLoader  *fakes.FakeBundleLoader
-		users         *fakes.FakeUserLookupper
-		mkdirer       *fakes.FakeMkdirer
-		bundlePath    string
-		logger        *lagertest.TestLogger
+		tracker           *fakes.FakeProcessTracker
+		commandRunner     *fake_command_runner.FakeCommandRunner
+		pidGenerator      *fakes.FakeUidGenerator
+		runcBinary        *fakes.FakeRuncBinary
+		loggingRuncBinary *fakes.FakeLoggingRuncBinary
+		bundleLoader      *fakes.FakeBundleLoader
+		users             *fakes.FakeUserLookupper
+		mkdirer           *fakes.FakeMkdirer
+		bundlePath        string
+		logger            *lagertest.TestLogger
 
 		runner *runrunc.RunRunc
 	)
@@ -47,6 +48,7 @@ var _ = Describe("RuncRunner", func() {
 		tracker = new(fakes.FakeProcessTracker)
 		pidGenerator = new(fakes.FakeUidGenerator)
 		runcBinary = new(fakes.FakeRuncBinary)
+		loggingRuncBinary = new(fakes.FakeLoggingRuncBinary)
 		commandRunner = fake_command_runner.New()
 		bundleLoader = new(fakes.FakeBundleLoader)
 		users = new(fakes.FakeUserLookupper)
@@ -61,7 +63,7 @@ var _ = Describe("RuncRunner", func() {
 			tracker,
 			commandRunner,
 			pidGenerator,
-			runcBinary,
+			loggingRuncBinary,
 			runrunc.NewExecPreparer(
 				bundleLoader,
 				users,
@@ -77,8 +79,8 @@ var _ = Describe("RuncRunner", func() {
 
 		users.LookupReturns(&user.ExecUser{}, nil)
 
-		runcBinary.StartCommandStub = func(path, id string, detach bool, logFilePath string) *exec.Cmd {
-			return exec.Command("funC", "start", path, id, fmt.Sprintf("%t", detach), "-logFile", logFilePath)
+		runcBinary.StartCommandStub = func(path, id string, detach bool) *exec.Cmd {
+			return exec.Command("funC", "start", path, id, fmt.Sprintf("%t", detach))
 		}
 
 		runcBinary.ExecCommandStub = func(id, processJSONPath, pidFilePath string) *exec.Cmd {
@@ -100,12 +102,15 @@ var _ = Describe("RuncRunner", func() {
 		runcBinary.DeleteCommandStub = func(id string) *exec.Cmd {
 			return exec.Command("funC", "delete", id)
 		}
+
+		loggingRuncBinary.WithLogFileReturns(runcBinary)
 	})
 
 	Describe("Start", func() {
 		It("starts the container with runC passing the detach flag", func() {
 			tracker.RunStub = func(_ string, cmd *exec.Cmd, io garden.ProcessIO, _ *garden.TTYSpec, _ string) (garden.Process, error) {
-				Expect(ioutil.WriteFile(cmd.Args[6], []byte(""), 0700)).To(Succeed())
+				logFile := loggingRuncBinary.WithLogFileArgsForCall(0)
+				Expect(ioutil.WriteFile(logFile, []byte(""), 0700)).To(Succeed())
 				return new(fakes.FakeProcess), nil
 			}
 
@@ -140,7 +145,8 @@ var _ = Describe("RuncRunner", func() {
 
 			JustBeforeEach(func() {
 				tracker.RunStub = func(_ string, cmd *exec.Cmd, io garden.ProcessIO, _ *garden.TTYSpec, _ string) (garden.Process, error) {
-					Expect(ioutil.WriteFile(cmd.Args[6], []byte(logs), 0700)).To(Succeed())
+					logFile := loggingRuncBinary.WithLogFileArgsForCall(0)
+					Expect(ioutil.WriteFile(logFile, []byte(logs), 0700)).To(Succeed())
 					fakeProcess := new(fakes.FakeProcess)
 
 					fakeProcess.WaitReturns(exitStatus, errorFromStart)
@@ -196,6 +202,31 @@ var _ = Describe("RuncRunner", func() {
 	})
 
 	Describe("Exec", func() {
+		It("forwards any logs to lager", func() {
+			logs := `time="2016-03-02T13:56:38Z" level=warning msg="signal: potato"
+				time="2016-03-02T13:56:38Z" level=error msg="fork/exec POTATO: no such file or directory"
+				time="2016-03-02T13:56:38Z" level=fatal msg="Container start failed: [10] System error: fork/exec POTATO: no such file or directory"`
+
+			tracker.RunStub = func(_ string, cmd *exec.Cmd, io garden.ProcessIO, _ *garden.TTYSpec, _ string) (garden.Process, error) {
+				logFile := loggingRuncBinary.WithLogFileArgsForCall(0)
+				Expect(ioutil.WriteFile(logFile, []byte(logs), 0700)).To(Succeed())
+				return new(fakes.FakeProcess), nil
+			}
+
+			_, err := runner.Exec(logger, bundlePath, "some-id", garden.ProcessSpec{}, garden.ProcessIO{Stdout: GinkgoWriter})
+			Expect(err).NotTo(HaveOccurred())
+
+			runcLogs := make([]lager.LogFormat, 0)
+			for _, log := range logger.Logs() {
+				if log.Message == "test.exec.runc" {
+					runcLogs = append(runcLogs, log)
+				}
+			}
+
+			Expect(runcLogs).To(HaveLen(3))
+			Expect(runcLogs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
+		})
+
 		It("runs exec against the injected runC binary using process tracker", func() {
 			pidGenerator.GenerateReturns("another-process-guid")
 			ttyspec := &garden.TTYSpec{WindowSize: &garden.WindowSize{Rows: 1}}
