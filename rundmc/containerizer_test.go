@@ -109,7 +109,7 @@ var _ = Describe("Rundmc", func() {
 		})
 
 		It("should watch for events in a goroutine", func() {
-			fakeContainerRunner.WatchEventsStub = func(_ lager.Logger, _ string, _ runrunc.EventsNotifier) error {
+			fakeContainerRunner.WatchEventsStub = func(_ lager.Logger, _ string, _ string, _ runrunc.EventsNotifier) error {
 				time.Sleep(10 * time.Second)
 				return nil
 			}
@@ -129,7 +129,8 @@ var _ = Describe("Rundmc", func() {
 
 			Eventually(fakeContainerRunner.WatchEventsCallCount).Should(Equal(1))
 
-			_, handle, eventsNotifier := fakeContainerRunner.WatchEventsArgsForCall(0)
+			_, bundlePath, handle, eventsNotifier := fakeContainerRunner.WatchEventsArgsForCall(0)
+			Expect(bundlePath).To(Equal("/path/to/some-container"))
 			Expect(handle).To(Equal("some-container"))
 			Expect(eventsNotifier).To(Equal(fakeEventStore))
 		})
@@ -245,7 +246,9 @@ var _ = Describe("Rundmc", func() {
 			It("should destroy the depot directory", func() {
 				Expect(containerizer.Destroy(logger, "some-handle")).To(Succeed())
 				Expect(fakeDepot.DestroyCallCount()).To(Equal(1))
-				Expect(arg2(fakeDepot.DestroyArgsForCall(0))).To(Equal("some-handle"))
+
+				_, id := fakeDepot.DestroyArgsForCall(0)
+				Expect(id).To(Equal("some-handle"))
 			})
 		})
 
@@ -259,13 +262,19 @@ var _ = Describe("Rundmc", func() {
 			It("should run kill", func() {
 				Expect(containerizer.Destroy(logger, "some-handle")).To(Succeed())
 				Expect(fakeContainerRunner.KillCallCount()).To(Equal(1))
-				Expect(arg2(fakeContainerRunner.KillArgsForCall(0))).To(Equal("some-handle"))
+
+				_, path, id := fakeContainerRunner.KillArgsForCall(0)
+				Expect(path).To(Equal("/path/to/some-handle"))
+				Expect(id).To(Equal("some-handle"))
 			})
 
 			It("should run delete", func() {
 				Expect(containerizer.Destroy(logger, "some-handle")).To(Succeed())
 				Expect(fakeContainerRunner.DeleteCallCount()).To(Equal(1))
-				Expect(arg2(fakeContainerRunner.DeleteArgsForCall(0))).To(Equal("some-handle"))
+
+				_, path, id := fakeContainerRunner.DeleteArgsForCall(0)
+				Expect(path).To(Equal("/path/to/some-handle"))
+				Expect(id).To(Equal("some-handle"))
 			})
 
 			It("should retry deletes", func() {
@@ -278,7 +287,7 @@ var _ = Describe("Rundmc", func() {
 				}
 
 				i := 0
-				fakeContainerRunner.DeleteStub = func(_ lager.Logger, handle string) error {
+				fakeContainerRunner.DeleteStub = func(_ lager.Logger, path, handle string) error {
 					i++
 					if i >= 4 {
 						return nil
@@ -303,7 +312,9 @@ var _ = Describe("Rundmc", func() {
 				It("destroys the depot directory", func() {
 					Expect(containerizer.Destroy(logger, "some-handle")).To(Succeed())
 					Expect(fakeDepot.DestroyCallCount()).To(Equal(1))
-					Expect(arg2(fakeDepot.DestroyArgsForCall(0))).To(Equal("some-handle"))
+
+					_, id := fakeDepot.DestroyArgsForCall(0)
+					Expect(id).To(Equal("some-handle"))
 				})
 			})
 
@@ -331,7 +342,10 @@ var _ = Describe("Rundmc", func() {
 			It("should run delete", func() {
 				Expect(containerizer.Destroy(logger, "some-handle")).To(Succeed())
 				Expect(fakeContainerRunner.DeleteCallCount()).To(Equal(1))
-				Expect(arg2(fakeContainerRunner.DeleteArgsForCall(0))).To(Equal("some-handle"))
+
+				_, path, id := fakeContainerRunner.DeleteArgsForCall(0)
+				Expect(path).To(Equal("/path/to/some-handle"))
+				Expect(id).To(Equal("some-handle"))
 			})
 		})
 	})
@@ -417,7 +431,3 @@ var _ = Describe("Rundmc", func() {
 		})
 	})
 })
-
-func arg2(_ lager.Logger, i interface{}) interface{} {
-	return i
-}

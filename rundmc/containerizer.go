@@ -37,12 +37,12 @@ type Checker interface {
 
 type BundleRunner interface {
 	Start(log lager.Logger, bundlePath, id string, io garden.ProcessIO) error
-	Exec(log lager.Logger, id, bundlePath string, spec garden.ProcessSpec, io garden.ProcessIO) (garden.Process, error)
-	Kill(log lager.Logger, bundlePath string) error
-	Delete(log lager.Logger, id string) error
-	State(log lager.Logger, id string) (runrunc.State, error)
-	Stats(log lager.Logger, id string) (gardener.ActualContainerMetrics, error)
-	WatchEvents(log lager.Logger, id string, eventsNotifier runrunc.EventsNotifier) error
+	Exec(log lager.Logger, bundlePath, id string, spec garden.ProcessSpec, io garden.ProcessIO) (garden.Process, error)
+	Kill(log lager.Logger, bundlePath, id string) error
+	Delete(log lager.Logger, bundlePath, id string) error
+	State(log lager.Logger, bundlePath, id string) (runrunc.State, error)
+	Stats(log lager.Logger, bundlePath, id string) (gardener.ActualContainerMetrics, error)
+	WatchEvents(log lager.Logger, BundlePath, id string, eventsNotifier runrunc.EventsNotifier) error
 }
 
 type NstarRunner interface {
@@ -105,7 +105,7 @@ func (c *Containerizer) Create(log lager.Logger, spec gardener.DesiredContainerS
 	}
 
 	go func() {
-		if err := c.runner.WatchEvents(log, spec.Handle, c.events); err != nil {
+		if err := c.runner.WatchEvents(log, path, spec.Handle, c.events); err != nil {
 			log.Error("watch-failed", err)
 		}
 	}()
@@ -136,7 +136,13 @@ func (c *Containerizer) StreamIn(log lager.Logger, handle string, spec garden.St
 	log.Info("started")
 	defer log.Info("finished")
 
-	state, err := c.runner.State(log, handle)
+	path, err := c.depot.Lookup(log, handle)
+	if err != nil {
+		log.Error("lookup", err)
+		return err
+	}
+
+	state, err := c.runner.State(log, path, handle)
 	if err != nil {
 		log.Error("check-pid-failed", err)
 		return fmt.Errorf("stream-in: pid not found for container")
@@ -157,7 +163,13 @@ func (c *Containerizer) StreamOut(log lager.Logger, handle string, spec garden.S
 	log.Info("started")
 	defer log.Info("finished")
 
-	state, err := c.runner.State(log, handle)
+	path, err := c.depot.Lookup(log, handle)
+	if err != nil {
+		log.Error("lookup", err)
+		return nil, err
+	}
+
+	state, err := c.runner.State(log, path, handle)
 	if err != nil {
 		log.Error("check-pid-failed", err)
 		return nil, fmt.Errorf("stream-out: pid not found for container")
@@ -179,7 +191,13 @@ func (c *Containerizer) Destroy(log lager.Logger, handle string) error {
 	log.Info("started")
 	defer log.Info("finished")
 
-	state, err := c.runner.State(log, handle)
+	path, err := c.depot.Lookup(log, handle)
+	if err != nil {
+		log.Error("lookup", err)
+		return err
+	}
+
+	state, err := c.runner.State(log, path, handle)
 	if err != nil {
 		log.Error("state-failed-skipping-kill", err)
 		return c.depot.Destroy(log, handle)
@@ -190,13 +208,13 @@ func (c *Containerizer) Destroy(log lager.Logger, handle string) error {
 	})
 
 	if state.Status == runrunc.RunningStatus {
-		if err := c.runner.Kill(log, handle); err != nil {
+		if err := c.runner.Kill(log, path, handle); err != nil {
 			log.Error("kill-failed", err)
 			return err
 		}
 	}
 
-	if err := c.retrier.Run(func() error { return c.runner.Delete(log, handle) }); err != nil {
+	if err := c.retrier.Run(func() error { return c.runner.Delete(log, path, handle) }); err != nil {
 		return err
 	}
 
@@ -216,7 +234,15 @@ func (c *Containerizer) Info(log lager.Logger, handle string) (gardener.ActualCo
 }
 
 func (c *Containerizer) Metrics(log lager.Logger, handle string) (gardener.ActualContainerMetrics, error) {
-	return c.runner.Stats(log, handle)
+	log = log.Session("metrics", lager.Data{"handle": handle})
+
+	path, err := c.depot.Lookup(log, handle)
+	if err != nil {
+		log.Error("lookup", err)
+		return gardener.ActualContainerMetrics{}, err
+	}
+
+	return c.runner.Stats(log, path, handle)
 }
 
 // Handles returns a list of all container handles

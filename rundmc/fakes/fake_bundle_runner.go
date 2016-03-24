@@ -23,12 +23,12 @@ type FakeBundleRunner struct {
 	startReturns struct {
 		result1 error
 	}
-	ExecStub        func(log lager.Logger, id, bundlePath string, spec garden.ProcessSpec, io garden.ProcessIO) (garden.Process, error)
+	ExecStub        func(log lager.Logger, bundlePath, id string, spec garden.ProcessSpec, io garden.ProcessIO) (garden.Process, error)
 	execMutex       sync.RWMutex
 	execArgsForCall []struct {
 		log        lager.Logger
-		id         string
 		bundlePath string
+		id         string
 		spec       garden.ProcessSpec
 		io         garden.ProcessIO
 	}
@@ -36,48 +36,53 @@ type FakeBundleRunner struct {
 		result1 garden.Process
 		result2 error
 	}
-	KillStub        func(log lager.Logger, bundlePath string) error
+	KillStub        func(log lager.Logger, bundlePath, id string) error
 	killMutex       sync.RWMutex
 	killArgsForCall []struct {
 		log        lager.Logger
 		bundlePath string
+		id         string
 	}
 	killReturns struct {
 		result1 error
 	}
-	DeleteStub        func(log lager.Logger, id string) error
+	DeleteStub        func(log lager.Logger, bundlePath, id string) error
 	deleteMutex       sync.RWMutex
 	deleteArgsForCall []struct {
-		log lager.Logger
-		id  string
+		log        lager.Logger
+		bundlePath string
+		id         string
 	}
 	deleteReturns struct {
 		result1 error
 	}
-	StateStub        func(log lager.Logger, id string) (runrunc.State, error)
+	StateStub        func(log lager.Logger, bundlePath, id string) (runrunc.State, error)
 	stateMutex       sync.RWMutex
 	stateArgsForCall []struct {
-		log lager.Logger
-		id  string
+		log        lager.Logger
+		bundlePath string
+		id         string
 	}
 	stateReturns struct {
 		result1 runrunc.State
 		result2 error
 	}
-	StatsStub        func(log lager.Logger, id string) (gardener.ActualContainerMetrics, error)
+	StatsStub        func(log lager.Logger, bundlePath, id string) (gardener.ActualContainerMetrics, error)
 	statsMutex       sync.RWMutex
 	statsArgsForCall []struct {
-		log lager.Logger
-		id  string
+		log        lager.Logger
+		bundlePath string
+		id         string
 	}
 	statsReturns struct {
 		result1 gardener.ActualContainerMetrics
 		result2 error
 	}
-	WatchEventsStub        func(log lager.Logger, id string, eventsNotifier runrunc.EventsNotifier) error
+	WatchEventsStub        func(log lager.Logger, BundlePath, id string, eventsNotifier runrunc.EventsNotifier) error
 	watchEventsMutex       sync.RWMutex
 	watchEventsArgsForCall []struct {
 		log            lager.Logger
+		BundlePath     string
 		id             string
 		eventsNotifier runrunc.EventsNotifier
 	}
@@ -121,18 +126,18 @@ func (fake *FakeBundleRunner) StartReturns(result1 error) {
 	}{result1}
 }
 
-func (fake *FakeBundleRunner) Exec(log lager.Logger, id string, bundlePath string, spec garden.ProcessSpec, io garden.ProcessIO) (garden.Process, error) {
+func (fake *FakeBundleRunner) Exec(log lager.Logger, bundlePath string, id string, spec garden.ProcessSpec, io garden.ProcessIO) (garden.Process, error) {
 	fake.execMutex.Lock()
 	fake.execArgsForCall = append(fake.execArgsForCall, struct {
 		log        lager.Logger
-		id         string
 		bundlePath string
+		id         string
 		spec       garden.ProcessSpec
 		io         garden.ProcessIO
-	}{log, id, bundlePath, spec, io})
+	}{log, bundlePath, id, spec, io})
 	fake.execMutex.Unlock()
 	if fake.ExecStub != nil {
-		return fake.ExecStub(log, id, bundlePath, spec, io)
+		return fake.ExecStub(log, bundlePath, id, spec, io)
 	} else {
 		return fake.execReturns.result1, fake.execReturns.result2
 	}
@@ -147,7 +152,7 @@ func (fake *FakeBundleRunner) ExecCallCount() int {
 func (fake *FakeBundleRunner) ExecArgsForCall(i int) (lager.Logger, string, string, garden.ProcessSpec, garden.ProcessIO) {
 	fake.execMutex.RLock()
 	defer fake.execMutex.RUnlock()
-	return fake.execArgsForCall[i].log, fake.execArgsForCall[i].id, fake.execArgsForCall[i].bundlePath, fake.execArgsForCall[i].spec, fake.execArgsForCall[i].io
+	return fake.execArgsForCall[i].log, fake.execArgsForCall[i].bundlePath, fake.execArgsForCall[i].id, fake.execArgsForCall[i].spec, fake.execArgsForCall[i].io
 }
 
 func (fake *FakeBundleRunner) ExecReturns(result1 garden.Process, result2 error) {
@@ -158,15 +163,16 @@ func (fake *FakeBundleRunner) ExecReturns(result1 garden.Process, result2 error)
 	}{result1, result2}
 }
 
-func (fake *FakeBundleRunner) Kill(log lager.Logger, bundlePath string) error {
+func (fake *FakeBundleRunner) Kill(log lager.Logger, bundlePath string, id string) error {
 	fake.killMutex.Lock()
 	fake.killArgsForCall = append(fake.killArgsForCall, struct {
 		log        lager.Logger
 		bundlePath string
-	}{log, bundlePath})
+		id         string
+	}{log, bundlePath, id})
 	fake.killMutex.Unlock()
 	if fake.KillStub != nil {
-		return fake.KillStub(log, bundlePath)
+		return fake.KillStub(log, bundlePath, id)
 	} else {
 		return fake.killReturns.result1
 	}
@@ -178,10 +184,10 @@ func (fake *FakeBundleRunner) KillCallCount() int {
 	return len(fake.killArgsForCall)
 }
 
-func (fake *FakeBundleRunner) KillArgsForCall(i int) (lager.Logger, string) {
+func (fake *FakeBundleRunner) KillArgsForCall(i int) (lager.Logger, string, string) {
 	fake.killMutex.RLock()
 	defer fake.killMutex.RUnlock()
-	return fake.killArgsForCall[i].log, fake.killArgsForCall[i].bundlePath
+	return fake.killArgsForCall[i].log, fake.killArgsForCall[i].bundlePath, fake.killArgsForCall[i].id
 }
 
 func (fake *FakeBundleRunner) KillReturns(result1 error) {
@@ -191,15 +197,16 @@ func (fake *FakeBundleRunner) KillReturns(result1 error) {
 	}{result1}
 }
 
-func (fake *FakeBundleRunner) Delete(log lager.Logger, id string) error {
+func (fake *FakeBundleRunner) Delete(log lager.Logger, bundlePath string, id string) error {
 	fake.deleteMutex.Lock()
 	fake.deleteArgsForCall = append(fake.deleteArgsForCall, struct {
-		log lager.Logger
-		id  string
-	}{log, id})
+		log        lager.Logger
+		bundlePath string
+		id         string
+	}{log, bundlePath, id})
 	fake.deleteMutex.Unlock()
 	if fake.DeleteStub != nil {
-		return fake.DeleteStub(log, id)
+		return fake.DeleteStub(log, bundlePath, id)
 	} else {
 		return fake.deleteReturns.result1
 	}
@@ -211,10 +218,10 @@ func (fake *FakeBundleRunner) DeleteCallCount() int {
 	return len(fake.deleteArgsForCall)
 }
 
-func (fake *FakeBundleRunner) DeleteArgsForCall(i int) (lager.Logger, string) {
+func (fake *FakeBundleRunner) DeleteArgsForCall(i int) (lager.Logger, string, string) {
 	fake.deleteMutex.RLock()
 	defer fake.deleteMutex.RUnlock()
-	return fake.deleteArgsForCall[i].log, fake.deleteArgsForCall[i].id
+	return fake.deleteArgsForCall[i].log, fake.deleteArgsForCall[i].bundlePath, fake.deleteArgsForCall[i].id
 }
 
 func (fake *FakeBundleRunner) DeleteReturns(result1 error) {
@@ -224,15 +231,16 @@ func (fake *FakeBundleRunner) DeleteReturns(result1 error) {
 	}{result1}
 }
 
-func (fake *FakeBundleRunner) State(log lager.Logger, id string) (runrunc.State, error) {
+func (fake *FakeBundleRunner) State(log lager.Logger, bundlePath string, id string) (runrunc.State, error) {
 	fake.stateMutex.Lock()
 	fake.stateArgsForCall = append(fake.stateArgsForCall, struct {
-		log lager.Logger
-		id  string
-	}{log, id})
+		log        lager.Logger
+		bundlePath string
+		id         string
+	}{log, bundlePath, id})
 	fake.stateMutex.Unlock()
 	if fake.StateStub != nil {
-		return fake.StateStub(log, id)
+		return fake.StateStub(log, bundlePath, id)
 	} else {
 		return fake.stateReturns.result1, fake.stateReturns.result2
 	}
@@ -244,10 +252,10 @@ func (fake *FakeBundleRunner) StateCallCount() int {
 	return len(fake.stateArgsForCall)
 }
 
-func (fake *FakeBundleRunner) StateArgsForCall(i int) (lager.Logger, string) {
+func (fake *FakeBundleRunner) StateArgsForCall(i int) (lager.Logger, string, string) {
 	fake.stateMutex.RLock()
 	defer fake.stateMutex.RUnlock()
-	return fake.stateArgsForCall[i].log, fake.stateArgsForCall[i].id
+	return fake.stateArgsForCall[i].log, fake.stateArgsForCall[i].bundlePath, fake.stateArgsForCall[i].id
 }
 
 func (fake *FakeBundleRunner) StateReturns(result1 runrunc.State, result2 error) {
@@ -258,15 +266,16 @@ func (fake *FakeBundleRunner) StateReturns(result1 runrunc.State, result2 error)
 	}{result1, result2}
 }
 
-func (fake *FakeBundleRunner) Stats(log lager.Logger, id string) (gardener.ActualContainerMetrics, error) {
+func (fake *FakeBundleRunner) Stats(log lager.Logger, bundlePath string, id string) (gardener.ActualContainerMetrics, error) {
 	fake.statsMutex.Lock()
 	fake.statsArgsForCall = append(fake.statsArgsForCall, struct {
-		log lager.Logger
-		id  string
-	}{log, id})
+		log        lager.Logger
+		bundlePath string
+		id         string
+	}{log, bundlePath, id})
 	fake.statsMutex.Unlock()
 	if fake.StatsStub != nil {
-		return fake.StatsStub(log, id)
+		return fake.StatsStub(log, bundlePath, id)
 	} else {
 		return fake.statsReturns.result1, fake.statsReturns.result2
 	}
@@ -278,10 +287,10 @@ func (fake *FakeBundleRunner) StatsCallCount() int {
 	return len(fake.statsArgsForCall)
 }
 
-func (fake *FakeBundleRunner) StatsArgsForCall(i int) (lager.Logger, string) {
+func (fake *FakeBundleRunner) StatsArgsForCall(i int) (lager.Logger, string, string) {
 	fake.statsMutex.RLock()
 	defer fake.statsMutex.RUnlock()
-	return fake.statsArgsForCall[i].log, fake.statsArgsForCall[i].id
+	return fake.statsArgsForCall[i].log, fake.statsArgsForCall[i].bundlePath, fake.statsArgsForCall[i].id
 }
 
 func (fake *FakeBundleRunner) StatsReturns(result1 gardener.ActualContainerMetrics, result2 error) {
@@ -292,16 +301,17 @@ func (fake *FakeBundleRunner) StatsReturns(result1 gardener.ActualContainerMetri
 	}{result1, result2}
 }
 
-func (fake *FakeBundleRunner) WatchEvents(log lager.Logger, id string, eventsNotifier runrunc.EventsNotifier) error {
+func (fake *FakeBundleRunner) WatchEvents(log lager.Logger, BundlePath string, id string, eventsNotifier runrunc.EventsNotifier) error {
 	fake.watchEventsMutex.Lock()
 	fake.watchEventsArgsForCall = append(fake.watchEventsArgsForCall, struct {
 		log            lager.Logger
+		BundlePath     string
 		id             string
 		eventsNotifier runrunc.EventsNotifier
-	}{log, id, eventsNotifier})
+	}{log, BundlePath, id, eventsNotifier})
 	fake.watchEventsMutex.Unlock()
 	if fake.WatchEventsStub != nil {
-		return fake.WatchEventsStub(log, id, eventsNotifier)
+		return fake.WatchEventsStub(log, BundlePath, id, eventsNotifier)
 	} else {
 		return fake.watchEventsReturns.result1
 	}
@@ -313,10 +323,10 @@ func (fake *FakeBundleRunner) WatchEventsCallCount() int {
 	return len(fake.watchEventsArgsForCall)
 }
 
-func (fake *FakeBundleRunner) WatchEventsArgsForCall(i int) (lager.Logger, string, runrunc.EventsNotifier) {
+func (fake *FakeBundleRunner) WatchEventsArgsForCall(i int) (lager.Logger, string, string, runrunc.EventsNotifier) {
 	fake.watchEventsMutex.RLock()
 	defer fake.watchEventsMutex.RUnlock()
-	return fake.watchEventsArgsForCall[i].log, fake.watchEventsArgsForCall[i].id, fake.watchEventsArgsForCall[i].eventsNotifier
+	return fake.watchEventsArgsForCall[i].log, fake.watchEventsArgsForCall[i].BundlePath, fake.watchEventsArgsForCall[i].id, fake.watchEventsArgsForCall[i].eventsNotifier
 }
 
 func (fake *FakeBundleRunner) WatchEventsReturns(result1 error) {
