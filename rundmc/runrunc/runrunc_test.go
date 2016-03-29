@@ -36,12 +36,23 @@ var _ = Describe("RuncRunner", func() {
 		mkdirer           *fakes.FakeMkdirer
 		bundlePath        string
 		logger            *lagertest.TestLogger
+		runcLogs          string
 
 		runner *runrunc.RunRunc
 	)
 
 	var rootfsPath = func(bundlePath string) string {
 		return "/rootfs/of/bundle" + bundlePath
+	}
+
+	var runcLogsWithMessage = func(logMessage string) []lager.LogFormat {
+		logs := make([]lager.LogFormat, 0)
+		for _, log := range logger.Logs() {
+			if log.Message == logMessage {
+				logs = append(logs, log)
+			}
+		}
+		return logs
 	}
 
 	BeforeEach(func() {
@@ -104,6 +115,10 @@ var _ = Describe("RuncRunner", func() {
 		}
 
 		loggingRuncBinary.WithLogFileReturns(runcBinary)
+
+		runcLogs = `time="2016-03-02T13:56:38Z" level=warning msg="signal: potato"
+				time="2016-03-02T13:56:38Z" level=error msg="fork/exec POTATO: no such file or directory"
+				time="2016-03-02T13:56:38Z" level=fatal msg="Container start failed: [10] System error: fork/exec POTATO: no such file or directory"`
 	})
 
 	Describe("Start", func() {
@@ -132,21 +147,17 @@ var _ = Describe("RuncRunner", func() {
 			var (
 				exitStatus     int
 				errorFromStart error
-				logs           string
 			)
 
 			BeforeEach(func() {
 				exitStatus = 0
 				errorFromStart = nil
-				logs = `time="2016-03-02T13:56:38Z" level=warning msg="signal: potato"
-				time="2016-03-02T13:56:38Z" level=error msg="fork/exec POTATO: no such file or directory"
-				time="2016-03-02T13:56:38Z" level=fatal msg="Container start failed: [10] System error: fork/exec POTATO: no such file or directory"`
 			})
 
 			JustBeforeEach(func() {
 				tracker.RunStub = func(_ string, cmd *exec.Cmd, io garden.ProcessIO, _ *garden.TTYSpec, _ string) (garden.Process, error) {
 					logFile := loggingRuncBinary.WithLogFileArgsForCall(0)
-					Expect(ioutil.WriteFile(logFile, []byte(logs), 0700)).To(Succeed())
+					Expect(ioutil.WriteFile(logFile, []byte(runcLogs), 0700)).To(Succeed())
 					fakeProcess := new(fakes.FakeProcess)
 
 					fakeProcess.WaitReturns(exitStatus, errorFromStart)
@@ -157,15 +168,10 @@ var _ = Describe("RuncRunner", func() {
 			It("sends all the logs to the logger", func() {
 				Expect(runner.Start(logger, bundlePath, "some-id", garden.ProcessIO{})).To(Succeed())
 
-				runcLogs := make([]lager.LogFormat, 0)
-				for _, log := range logger.Logs() {
-					if log.Message == "test.start.runc" {
-						runcLogs = append(runcLogs, log)
-					}
-				}
+				logs := runcLogsWithMessage("test.start.runc")
 
-				Expect(runcLogs).To(HaveLen(3))
-				Expect(runcLogs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
+				Expect(logs).To(HaveLen(3))
+				Expect(logs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
 			})
 
 			Context("when runC start fails", func() {
@@ -178,9 +184,18 @@ var _ = Describe("RuncRunner", func() {
 				})
 
 				Context("when the log messages can't be parsed", func() {
-					BeforeEach(func() {
-						logs = `foo="'
+					JustBeforeEach(func() {
+						badLogs := `foo="'
 					`
+
+						tracker.RunStub = func(_ string, cmd *exec.Cmd, io garden.ProcessIO, _ *garden.TTYSpec, _ string) (garden.Process, error) {
+							logFile := loggingRuncBinary.WithLogFileArgsForCall(0)
+							Expect(ioutil.WriteFile(logFile, []byte(badLogs), 0700)).To(Succeed())
+							fakeProcess := new(fakes.FakeProcess)
+
+							fakeProcess.WaitReturns(exitStatus, errorFromStart)
+							return fakeProcess, nil
+						}
 					})
 
 					It("returns an error with only the exit status if the log can't be parsed", func() {
@@ -609,49 +624,28 @@ var _ = Describe("RuncRunner", func() {
 	})
 
 	Describe("Kill", func() {
-		var (
-			errorFromRun error
-			logs         string
-		)
+		var errorFromRun error
 
 		BeforeEach(func() {
 			errorFromRun = nil
-			logs = `time="2016-03-02T13:56:38Z" level=warning msg="signal: potato"
-				time="2016-03-02T13:56:38Z" level=error msg="fork/exec POTATO: no such file or directory"
-				time="2016-03-02T13:56:38Z" level=fatal msg="Container start failed: [10] System error: fork/exec POTATO: no such file or directory"`
 		})
 
 		JustBeforeEach(func() {
 			commandRunner.WhenRunning(fake_command_runner.CommandSpec{
 				Path: "funC",
+				Args: []string{"kill", "some-id", "KILL"},
 			}, func(cmd *exec.Cmd) error {
 				logFile := loggingRuncBinary.WithLogFileArgsForCall(0)
-				Expect(ioutil.WriteFile(logFile, []byte(logs), 0700)).To(Succeed())
+				Expect(ioutil.WriteFile(logFile, []byte(runcLogs), 0700)).To(Succeed())
 				return errorFromRun
 			})
 		})
 
-		ItForwardsLogs := func() {
-			It("forwards logs", func() {
-				runner.Kill(logger, bundlePath, "some-id")
-
-				runcLogs := make([]lager.LogFormat, 0)
-				for _, log := range logger.Logs() {
-					if log.Message == "test.kill.runc" {
-						runcLogs = append(runcLogs, log)
-					}
-				}
-
-				Expect(runcLogs).To(HaveLen(3))
-				Expect(runcLogs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
-			})
-		}
-
 		It("runs 'runc kill' in the container directory", func() {
-			Expect(runner.Kill(logger, bundlePath, "some-container")).To(Succeed())
+			Expect(runner.Kill(logger, bundlePath, "some-id")).To(Succeed())
 			Expect(commandRunner).To(HaveExecutedSerially(fake_command_runner.CommandSpec{
 				Path: "funC",
-				Args: []string{"kill", "some-container", "KILL"},
+				Args: []string{"kill", "some-id", "KILL"},
 			}))
 		})
 
@@ -666,7 +660,14 @@ var _ = Describe("RuncRunner", func() {
 		})
 
 		Context("when runc kill succeeds", func() {
-			ItForwardsLogs()
+			It("forwards logs", func() {
+				runner.Kill(logger, bundlePath, "some-id")
+
+				logs := runcLogsWithMessage("test.kill.runc")
+
+				Expect(logs).To(HaveLen(3))
+				Expect(logs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
+			})
 		})
 
 		Context("when runc kill fails", func() {
@@ -674,27 +675,82 @@ var _ = Describe("RuncRunner", func() {
 				errorFromRun = errors.New("boom")
 			})
 
-			ItForwardsLogs()
+			It("forwards logs", func() {
+				runner.Kill(logger, bundlePath, "some-id")
+
+				logs := runcLogsWithMessage("test.kill.runc")
+
+				Expect(logs).To(HaveLen(3))
+				Expect(logs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
+			})
 
 			It("adds the error from the logs to the returned error", func() {
-				Expect(runner.Kill(logger, bundlePath, "some-id")).To(MatchError(MatchRegexp("runc kill: .* POTATO.*")))
+				err := runner.Kill(logger, bundlePath, "some-id")
+				Expect(err.Error()).To(ContainSubstring("boom"))
+				Expect(err).To(MatchError(MatchRegexp("runc kill: .* POTATO.*")))
 			})
 		})
 	})
 
 	Describe("Delete", func() {
+		var errorFromRun error
+
+		JustBeforeEach(func() {
+			commandRunner.WhenRunning(fake_command_runner.CommandSpec{
+				Path: "funC",
+				Args: []string{"delete", "some-container"},
+			}, func(cmd *exec.Cmd) error {
+				logFile := loggingRuncBinary.WithLogFileArgsForCall(0)
+				Expect(ioutil.WriteFile(logFile, []byte(runcLogs), 0700)).To(Succeed())
+				return errorFromRun
+			})
+		})
+
 		It("deletes the bundle with 'runc delete'", func() {
-			Expect(runner.Delete(logger, "some-path", "some-container")).To(Succeed())
+			Expect(runner.Delete(logger, bundlePath, "some-container")).To(Succeed())
 			Expect(commandRunner).To(HaveExecutedSerially(fake_command_runner.CommandSpec{
 				Path: "funC",
 				Args: []string{"delete", "some-container"},
 			}))
+		})
+
+		Context("when runc delete succeeds", func() {
+			It("forwards runc logs", func() {
+				runner.Delete(logger, bundlePath, "some-container")
+
+				logs := runcLogsWithMessage("test.delete.runc")
+
+				Expect(logs).To(HaveLen(3))
+				Expect(logs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
+			})
+		})
+
+		Context("when runc delete fails", func() {
+			BeforeEach(func() {
+				errorFromRun = errors.New("boom")
+			})
+
+			It("forwards logs", func() {
+				runner.Delete(logger, bundlePath, "some-container")
+
+				logs := runcLogsWithMessage("test.delete.runc")
+
+				Expect(logs).To(HaveLen(3))
+				Expect(logs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
+			})
+
+			It("adds the eror from the logs to the returned error", func() {
+				err := runner.Delete(logger, bundlePath, "some-container")
+				Expect(err).To(MatchError(ContainSubstring("boom")))
+				Expect(err).To(MatchError(MatchRegexp("runc delete: .* POTATO.*")))
+			})
 		})
 	})
 
 	Describe("State", func() {
 		var (
 			stateCmdOutput string
+			stateCmdErr    string
 			stateCmdExit   error
 		)
 
@@ -711,13 +767,16 @@ var _ = Describe("RuncRunner", func() {
 				Path: "funC",
 				Args: []string{"state", "some-container"},
 			}, func(cmd *exec.Cmd) error {
+				logFile := loggingRuncBinary.WithLogFileArgsForCall(0)
+				Expect(ioutil.WriteFile(logFile, []byte(runcLogs), 0700)).To(Succeed())
+				cmd.Stderr.Write([]byte(stateCmdErr))
 				cmd.Stdout.Write([]byte(stateCmdOutput))
 				return stateCmdExit
 			})
 		})
 
 		It("gets the bundle state", func() {
-			state, err := runner.State(logger, "some-path", "some-container")
+			state, err := runner.State(logger, bundlePath, "some-container")
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(state.Pid).To(Equal(4))
@@ -729,11 +788,21 @@ var _ = Describe("RuncRunner", func() {
 				stateCmdExit = errors.New("boom")
 			})
 
+			It("forwards logs", func() {
+				runner.State(logger, bundlePath, "some-container")
+
+				logs := runcLogsWithMessage("test.state.runc")
+
+				Expect(logs).To(HaveLen(3))
+				Expect(logs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
+			})
+
 			It("returns the error", func() {
-				_, err := runner.State(logger, "some-path", "some-container")
+				_, err := runner.State(logger, bundlePath, "some-container")
 				Expect(err).To(
 					MatchError(ContainSubstring("boom")),
 				)
+				Expect(err).To(MatchError(MatchRegexp("runc state: .* POTATO.*")))
 			})
 		})
 
@@ -743,10 +812,40 @@ var _ = Describe("RuncRunner", func() {
 			})
 
 			It("returns a reasonable error", func() {
-				_, err := runner.State(logger, "some-path", "some-container")
+				_, err := runner.State(logger, bundlePath, "some-container")
 				Expect(err).To(
 					MatchError(ContainSubstring("runc state: invalid character 'p'")),
 				)
+			})
+		})
+
+		Context("when runc state suceeds", func() {
+			It("forwards the runc logs to lager logger", func() {
+				runner.State(logger, bundlePath, "some-container")
+
+				logs := runcLogsWithMessage("test.state.runc")
+
+				Expect(logs).To(HaveLen(3))
+				Expect(logs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
+			})
+		})
+
+		Context("when log file creation fails", func() {
+
+			It("errors", func() {
+				_, err := runner.State(logger, "wrong-path", "some-container")
+				Expect(err.Error()).To(ContainSubstring("no such file or directory"))
+			})
+		})
+
+		Context("when runc output is invalid json", func() {
+			BeforeEach(func() {
+				stateCmdErr = "some-error"
+			})
+
+			It("errors", func() {
+				_, err := runner.State(logger, bundlePath, "some-container")
+				Expect(err).To(MatchError(ContainSubstring("runc state: invalid character")))
 			})
 		})
 	})
@@ -835,12 +934,26 @@ var _ = Describe("RuncRunner", func() {
 	})
 
 	Describe("Stats", func() {
+		var (
+			stateCmdExit error
+			stateCmdOut  string
+		)
+
+		JustBeforeEach(func() {
+			commandRunner.WhenRunning(fake_command_runner.CommandSpec{
+				Path: "funC-stats",
+				Args: []string{"--handle", "some-handle"},
+			}, func(cmd *exec.Cmd) error {
+				logFile := loggingRuncBinary.WithLogFileArgsForCall(0)
+				Expect(ioutil.WriteFile(logFile, []byte(runcLogs), 0700)).To(Succeed())
+				cmd.Stdout.Write([]byte(stateCmdOut))
+				return stateCmdExit
+			})
+		})
+
 		Context("when runC reports valid JSON", func() {
 			BeforeEach(func() {
-				commandRunner.WhenRunning(fake_command_runner.CommandSpec{
-					Path: "funC-stats",
-				}, func(cmd *exec.Cmd) error {
-					cmd.Stdout.Write([]byte(`{
+				stateCmdOut = `{
 					"type": "stats",
 					"data": {
 						"CgroupStats": {
@@ -889,14 +1002,11 @@ var _ = Describe("RuncRunner", func() {
 							}
 						}
 					}
-				}`))
-
-					return nil
-				})
+				}`
 			})
 
 			It("parses the CPU stats", func() {
-				stats, err := runner.Stats(logger, "some-path", "some-handle")
+				stats, err := runner.Stats(logger, bundlePath, "some-handle")
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(stats.CPU).To(Equal(garden.ContainerCPUStat{
@@ -907,7 +1017,7 @@ var _ = Describe("RuncRunner", func() {
 			})
 
 			It("parses the memory stats", func() {
-				stats, err := runner.Stats(logger, "some-path", "some-handle")
+				stats, err := runner.Stats(logger, bundlePath, "some-handle")
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(stats.Memory).To(Equal(garden.ContainerMemoryStat{
@@ -942,37 +1052,60 @@ var _ = Describe("RuncRunner", func() {
 					TotalUsageTowardLimit:  22,
 				}))
 			})
+
+			It("forwards runc logs", func() {
+				runner.Stats(logger, bundlePath, "some-handle")
+
+				logs := runcLogsWithMessage("test.stats.runc")
+
+				Expect(logs).To(HaveLen(3))
+				Expect(logs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
+			})
 		})
 
 		Context("when runC reports invalid JSON", func() {
 			BeforeEach(func() {
-				commandRunner.WhenRunning(fake_command_runner.CommandSpec{
-					Path: "funC-stats",
-				}, func(cmd *exec.Cmd) error {
-					cmd.Stdout.Write([]byte(`{ banana potato banana potato }`))
-
-					return nil
-				})
+				stateCmdOut = `{ banana potato banana potato }`
 			})
 
 			It("should return an error", func() {
-				_, err := runner.Stats(logger, "some-path", "some-container")
+				_, err := runner.Stats(logger, bundlePath, "some-handle")
 				Expect(err).To(MatchError(ContainSubstring("decode stats")))
+			})
+
+			It("forwards runc logs", func() {
+				runner.Stats(logger, bundlePath, "some-handle")
+
+				logs := runcLogsWithMessage("test.stats.runc")
+
+				Expect(logs).To(HaveLen(3))
+				Expect(logs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
 			})
 		})
 
 		Context("when runC fails", func() {
 			BeforeEach(func() {
-				commandRunner.WhenRunning(fake_command_runner.CommandSpec{
-					Path: "funC-stats",
-				}, func(cmd *exec.Cmd) error {
-					return errors.New("banana")
-				})
+				stateCmdExit = errors.New("banana")
 			})
 
 			It("returns an error", func() {
-				_, err := runner.Stats(logger, "some-path", "some-container")
-				Expect(err).To(MatchError(ContainSubstring("runC stats: banana")))
+				_, err := runner.Stats(logger, bundlePath, "some-handle")
+				Expect(err).To(MatchError(ContainSubstring("runc stats: banana")))
+			})
+
+			It("forwards runc logs", func() {
+				runner.Stats(logger, bundlePath, "some-handle")
+
+				logs := runcLogsWithMessage("test.stats.runc")
+
+				Expect(logs).To(HaveLen(3))
+				Expect(logs[0].Data).To(HaveKeyWithValue("message", "signal: potato"))
+			})
+
+			It("adds the error from the logs to the returned error", func() {
+				_, err := runner.Stats(logger, bundlePath, "some-handle")
+				Expect(err).To(MatchError(ContainSubstring("banana")))
+				Expect(err).To(MatchError(MatchRegexp("runc stats: .* POTATO.*")))
 			})
 		})
 	})

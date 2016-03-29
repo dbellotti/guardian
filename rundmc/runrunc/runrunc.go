@@ -225,9 +225,18 @@ func (r *RunRunc) WatchEvents(log lager.Logger, bundlePath, handle string, event
 }
 
 func (r *RunRunc) Stats(log lager.Logger, path, id string) (gardener.ActualContainerMetrics, error) {
-	buf, err := r.run(log, r.runc.WithLogFile("").StatsCommand(id))
+	log = log.Session("stats", lager.Data{"handle": id})
+
+	logFileName, err := generateFileName(path, "stats")
 	if err != nil {
-		return gardener.ActualContainerMetrics{}, fmt.Errorf("runC stats: %s", err)
+		log.Error("generate-file-name-failed", err)
+		return gardener.ActualContainerMetrics{}, fmt.Errorf("runc stats: %s", err.Error())
+	}
+
+	buf, err := r.run(log, r.runc.WithLogFile(logFileName).StatsCommand(id))
+	err = processRuncLogs(log, logFileName, err)
+	if err != nil {
+		return gardener.ActualContainerMetrics{}, fmt.Errorf("runc stats: %s", err)
 	}
 
 	var data runcStats
@@ -251,18 +260,25 @@ func (r *RunRunc) Stats(log lager.Logger, path, id string) (gardener.ActualConta
 
 // State gets the state of the bundle
 func (r *RunRunc) State(log lager.Logger, bundlePath, handle string) (state State, err error) {
-	log = log.Session("State", lager.Data{"handle": handle})
+	log = log.Session("state", lager.Data{"handle": handle})
 
 	log.Info("started")
 	defer log.Info("finished")
 
-	buff, err := r.run(log, r.runc.WithLogFile("").StateCommand(handle))
+	logFileName, err := generateFileName(bundlePath, "state")
+	if err != nil {
+		log.Error("generate-file-name-failed", err)
+		return State{}, fmt.Errorf("runc state: %s", err)
+	}
+
+	buf, err := r.run(log, r.runc.WithLogFile(logFileName).StateCommand(handle))
+	err = processRuncLogs(log, logFileName, err)
 	if err != nil {
 		log.Error("state-cmd-failed", err)
 		return State{}, fmt.Errorf("runc state: %s", err)
 	}
 
-	if err := json.NewDecoder(buff).Decode(&state); err != nil {
+	if err := json.NewDecoder(buf).Decode(&state); err != nil {
 		log.Error("decode-state-failed", err)
 		return State{}, fmt.Errorf("runc state: %s", err)
 	}
@@ -277,7 +293,7 @@ func (r *RunRunc) Kill(log lager.Logger, bundlePath, handle string) (err error) 
 	log.Info("started")
 	defer log.Info("finished")
 
-	logFileName, err := logFile(bundlePath, "kill")
+	logFileName, err := generateFileName(bundlePath, "kill")
 	if err != nil {
 		return err
 	}
@@ -292,7 +308,7 @@ func (r *RunRunc) Kill(log lager.Logger, bundlePath, handle string) (err error) 
 	return nil
 }
 
-func logFile(bundlePathPrefix, prefix string) (string, error) {
+func generateFileName(bundlePathPrefix, prefix string) (string, error) {
 	file, err := ioutil.TempFile(bundlePathPrefix, prefix)
 	if err != nil {
 		return "", err
@@ -307,16 +323,29 @@ func logFile(bundlePathPrefix, prefix string) (string, error) {
 
 // Delete a bundle which was detached (requires the bundle was already killed)
 func (r *RunRunc) Delete(log lager.Logger, bundlePath, handle string) error {
-	cmd := r.runc.WithLogFile("").DeleteCommand(handle)
-	return r.commandRunner.Run(cmd)
+	log = log.Session("delete", lager.Data{"handle": handle})
+
+	logFileName, err := generateFileName(bundlePath, "delete")
+	if err != nil {
+		return err
+	}
+
+	buf, err := r.run(log, r.runc.WithLogFile(logFileName).DeleteCommand(handle))
+	err = processRuncLogs(log, logFileName, err)
+
+	if err != nil {
+		log.Error("delete-failed", err, lager.Data{"stderr": buf.String()})
+		return fmt.Errorf("runc delete: %s", err.Error())
+	}
+	return nil
 }
 
 func (r *RunRunc) run(log lager.Logger, cmd *exec.Cmd) (*bytes.Buffer, error) {
-	buf := new(bytes.Buffer)
-	cmd.Stdout = buf
-	cmd.Stderr = buf
+	buff := new(bytes.Buffer)
+	cmd.Stdout = buff
+	cmd.Stderr = buff
 
-	return buf, r.commandRunner.Run(cmd)
+	return buff, r.commandRunner.Run(cmd)
 }
 
 func processRuncLogs(log lager.Logger, logFile string, err error) error {
